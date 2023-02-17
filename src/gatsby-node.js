@@ -1,6 +1,6 @@
 import { pipe } from "lodash/fp"
 import chalk from "chalk"
-import { forEach } from "p-iteration"
+import { forEach, forEachSeries } from "p-iteration"
 import { printGraphQLError, queryAll, queryOnce } from "./lib"
 import { createClient } from "./create-client"
 
@@ -55,11 +55,14 @@ export const sourceNodes = async (
     apiVersion = `2020-07`,
     verbose = true,
     paginationSize = 250,
+    paginationDelay = 500,
+    languages = ["en"],
     includeCollections = [SHOP, CONTENT],
     shopifyQueries = {},
   }
 ) => {
-  const client = createClient(shopName, accessToken, apiVersion)
+  const createTranslatedClient = locale =>
+    createClient(shopName, accessToken, apiVersion, locale)
 
   const defaultQueries = {
     articles: ARTICLES_QUERY,
@@ -93,74 +96,73 @@ export const sourceNodes = async (
 
     // Arguments used for node creation.
     const args = {
-      client,
+      createTranslatedClient,
       createNode,
       createNodeId,
       formatMsg,
       verbose,
       imageArgs,
       paginationSize,
+      paginationDelay,
       queries,
+      languages,
     }
 
     // Message printed when fetching is complete.
     const msg = formatMsg(`finished fetching data from Shopify`)
 
-    let promises = []
     if (includeCollections.includes(SHOP)) {
-      promises = promises.concat([
-        createNodes(COLLECTION, queries.collections, CollectionNode, args),
-        createNodes(
-          PRODUCT,
-          queries.products,
-          ProductNode,
-          args,
-          async (product, productNode) => {
-            if (product.variants)
-              await forEach(product.variants.edges, async edge => {
-                const v = edge.node
-                if (v.metafields)
-                  await forEach(v.metafields.edges, async edge =>
-                    createNode(
-                      await ProductVariantMetafieldNode(imageArgs)(edge.node)
-                    )
+      await createNodes(COLLECTION, queries.collections, CollectionNode, args)
+      await createNodes(
+        PRODUCT,
+        queries.products,
+        ProductNode,
+        args,
+        async (product, productNode) => {
+          if (product.variants)
+            await forEach(product.variants.edges, async edge => {
+              const v = edge.node
+              if (v.metafields)
+                await forEach(v.metafields.edges, async edge =>
+                  createNode(
+                    await ProductVariantMetafieldNode(imageArgs)(edge.node)
                   )
-                return createNode(
-                  await ProductVariantNode(imageArgs, productNode)(edge.node)
                 )
-              })
-
-            if (product.metafields)
-              await forEach(product.metafields.edges, async edge =>
-                createNode(await ProductMetafieldNode(imageArgs)(edge.node))
+              return createNode(
+                await ProductVariantNode(imageArgs, productNode)(edge.node)
               )
+            })
 
-            if (product.options)
-              await forEach(product.options, async option =>
-                createNode(await ProductOptionNode(imageArgs)(option))
-              )
-          }
-        ),
-        createShopPolicies(args),
-        createShopDetails(args),
-      ])
+          if (product.metafields)
+            await forEach(product.metafields.edges, async edge =>
+              createNode(await ProductMetafieldNode(imageArgs)(edge.node))
+            )
+
+          if (product.options)
+            await forEach(product.options, async option =>
+              createNode(await ProductOptionNode(imageArgs)(option))
+            )
+        }
+      )
+      await createShopPolicies(args)
+      await createShopDetails(args)
     }
     if (includeCollections.includes(CONTENT)) {
-      promises = promises.concat([
-        createNodes(BLOG, queries.blogs, BlogNode, args),
-        createNodes(ARTICLE, queries.articles, ArticleNode, args, async x => {
+      await createNodes(BLOG, queries.blogs, BlogNode, args)
+      await createNodes(
+        ARTICLE,
+        queries.articles,
+        ArticleNode,
+        args,
+        async x => {
           if (x.comments)
             await forEach(x.comments.edges, async edge =>
               createNode(await CommentNode(imageArgs)(edge.node))
             )
-        }),
-        createPageNodes(PAGE, queries.pages, PageNode, args),
-      ])
+        }
+      )
+      await createPageNodes(PAGE, queries.pages, PageNode, args)
     }
-
-    console.time(msg)
-    await Promise.all(promises)
-    console.timeEnd(msg)
   } catch (e) {
     console.error(chalk`\n{red error} an error occurred while sourcing data`)
 
@@ -178,25 +180,38 @@ const createNodes = async (
   endpoint,
   query,
   nodeFactory,
-  { client, createNode, formatMsg, verbose, imageArgs, paginationSize },
+  {
+    createTranslatedClient,
+    createNode,
+    formatMsg,
+    verbose,
+    imageArgs,
+    paginationSize,
+    paginationDelay,
+    languages,
+  },
   f = async () => {}
 ) => {
   // Message printed when fetching is complete.
   const msg = formatMsg(`fetched and processed ${endpoint} nodes`)
 
   if (verbose) console.time(msg)
-  await forEach(
-    await queryAll(
-      client,
-      [NODE_TO_ENDPOINT_MAPPING[endpoint]],
-      query,
-      paginationSize
-    ),
-    async entity => {
-      const node = await nodeFactory(imageArgs)(entity)
-      createNode(node)
-      await f(entity, node)
-    }
+
+  await forEachSeries(languages, async locale =>
+    forEachSeries(
+      await queryAll(
+        createTranslatedClient(locale),
+        [NODE_TO_ENDPOINT_MAPPING[endpoint]],
+        query,
+        paginationDelay,
+        paginationSize
+      ),
+      async entity => {
+        const node = await nodeFactory(imageArgs)(mapEntityIds(entity, locale))
+        await createNode(node)
+        await f(entity, node)
+      }
+    )
   )
   if (verbose) console.timeEnd(msg)
 }
@@ -205,18 +220,24 @@ const createNodes = async (
  * Fetch and create nodes for shop policies.
  */
 const createShopDetails = async ({
-  client,
+  createTranslatedClient,
   createNode,
   formatMsg,
   verbose,
   queries,
+  languages,
 }) => {
   // // Message printed when fetching is complete.
   const msg = formatMsg(`fetched and processed ${SHOP_DETAILS} nodes`)
 
   if (verbose) console.time(msg)
-  const { shop } = await queryOnce(client, queries.shopDetails)
-  createNode(ShopDetailsNode(shop))
+  await forEach(languages, async locale => {
+    const { shop } = await queryOnce(
+      createTranslatedClient(locale),
+      queries.shopDetails
+    )
+    createNode(ShopDetailsNode(nodeWithLocale(shop, locale)))
+  })
   if (verbose) console.timeEnd(msg)
 }
 
@@ -224,22 +245,33 @@ const createShopDetails = async ({
  * Fetch and create nodes for shop policies.
  */
 const createShopPolicies = async ({
-  client,
+  createTranslatedClient,
   createNode,
   formatMsg,
   verbose,
   queries,
+  languages,
 }) => {
   // Message printed when fetching is complete.
   const msg = formatMsg(`fetched and processed ${SHOP_POLICY} nodes`)
 
   if (verbose) console.time(msg)
-  const { shop: policies } = await queryOnce(client, queries.shopPolicies)
-  Object.entries(policies)
-    .filter(([_, policy]) => Boolean(policy))
-    .forEach(
-      pipe(([type, policy]) => ShopPolicyNode(policy, { type }), createNode)
+  await forEach(languages, async locale => {
+    const { shop: policies } = await queryOnce(
+      createTranslatedClient(locale),
+      queries.shopPolicies
     )
+
+    Object.entries(policies)
+      .filter(([_, policy]) => Boolean(policy))
+      .forEach(
+        pipe(
+          ([type, policy]) =>
+            ShopPolicyNode(nodeWithLocale(policy, locale), { type }),
+          createNode
+        )
+      )
+  })
   if (verbose) console.timeEnd(msg)
 }
 
@@ -247,25 +279,77 @@ const createPageNodes = async (
   endpoint,
   query,
   nodeFactory,
-  { client, createNode, formatMsg, verbose, paginationSize },
+  {
+    createTranslatedClient,
+    createNode,
+    formatMsg,
+    verbose,
+    paginationSize,
+    paginationDelay,
+    languages,
+  },
   f = async () => {}
 ) => {
   // Message printed when fetching is complete.
   const msg = formatMsg(`fetched and processed ${endpoint} nodes`)
 
   if (verbose) console.time(msg)
-  await forEach(
-    await queryAll(
-      client,
-      [NODE_TO_ENDPOINT_MAPPING[endpoint]],
-      query,
-      paginationSize
-    ),
-    async entity => {
-      const node = await nodeFactory(entity)
-      createNode(node)
-      await f(entity)
-    }
-  )
+  await forEach(languages, async locale => {
+    await forEach(
+      await queryAll(
+        createTranslatedClient(locale),
+        [NODE_TO_ENDPOINT_MAPPING[endpoint]],
+        query,
+        paginationDelay,
+        paginationSize
+      ),
+      async entity => {
+        const node = await nodeFactory(entity)
+        createNode(nodeWithLocale(node, locale))
+        await f(entity)
+      }
+    )
+  })
   if (verbose) console.timeEnd(msg)
+}
+
+const nodeWithLocale = (node, locale) => ({
+  ...node,
+  id: `${locale}__${node.id}`,
+  locale,
+})
+
+const mapEntityIds = (node, locale) => {
+  if (node.products) {
+    node.products.edges.forEach(edge => {
+      edge.node = nodeWithLocale(edge.node, locale)
+    })
+  }
+  if (node.variants) {
+    node.variants.edges.forEach(edge => {
+      edge.node = nodeWithLocale(edge.node, locale)
+    })
+  }
+  if (node.metafields) {
+    node.metafields.edges.forEach(edge => {
+      edge.node = nodeWithLocale(edge.node, locale)
+    })
+  }
+  if (node.options) {
+    node.options = node.options.map(option => nodeWithLocale(option, locale))
+  }
+  if (node.comments) {
+    node.comments.forEach(edge => {
+      edge.node = nodeWithLocale(edge.node, locale)
+    })
+  }
+  if (node.image) {
+    node.image = nodeWithLocale(node.image, locale)
+  }
+  if (node.images && node.images.edges) {
+    node.images.edges.forEach(edge => {
+      edge.node = nodeWithLocale(edge.node, locale)
+    })
+  }
+  return nodeWithLocale(node, locale)
 }

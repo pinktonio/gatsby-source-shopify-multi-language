@@ -12,8 +12,6 @@ import {
   ProductNode,
   ProductOptionNode,
   ProductVariantNode,
-  ProductMetafieldNode,
-  ProductVariantMetafieldNode,
   ShopPolicyNode,
   ShopDetailsNode,
   PageNode,
@@ -52,7 +50,7 @@ export const sourceNodes = async (
   {
     shopName,
     accessToken,
-    apiVersion = `2020-07`,
+    apiVersion = `2023-01`,
     verbose = true,
     paginationSize = 250,
     paginationDelay = 500,
@@ -121,22 +119,10 @@ export const sourceNodes = async (
         async (product, productNode) => {
           if (product.variants)
             await forEach(product.variants.edges, async edge => {
-              const v = edge.node
-              if (v.metafields)
-                await forEach(v.metafields.edges, async edge =>
-                  createNode(
-                    await ProductVariantMetafieldNode(imageArgs)(edge.node)
-                  )
-                )
               return createNode(
                 await ProductVariantNode(imageArgs, productNode)(edge.node)
               )
             })
-
-          if (product.metafields)
-            await forEach(product.metafields.edges, async edge =>
-              createNode(await ProductMetafieldNode(imageArgs)(edge.node))
-            )
 
           if (product.options)
             await forEach(product.options, async option =>
@@ -330,11 +316,7 @@ const mapEntityIds = (node, locale) => {
       edge.node = nodeWithLocale(edge.node, locale)
     })
   }
-  if (node.metafields) {
-    node.metafields.edges.forEach(edge => {
-      edge.node = nodeWithLocale(edge.node, locale)
-    })
-  }
+
   if (node.options) {
     node.options = node.options.map(option => nodeWithLocale(option, locale))
   }

@@ -11,8 +11,6 @@ import {
   PRODUCT,
   PRODUCT_OPTION,
   PRODUCT_VARIANT,
-  PRODUCT_METAFIELD,
-  PRODUCT_VARIANT_METAFIELD,
   SHOP_POLICY,
   SHOP_DETAILS,
   PAGE,
@@ -111,15 +109,6 @@ export const ProductNode = imageArgs =>
       delete node.variants
     }
 
-    if (node.metafields) {
-      const metafields = node.metafields.edges.map(edge => edge.node)
-
-      node.metafields___NODE = metafields.map(metafield =>
-        generateNodeId(PRODUCT_METAFIELD, metafield.id)
-      )
-      delete node.metafields
-    }
-
     if (node.options) {
       node.options___NODE = node.options.map(option =>
         generateNodeId(PRODUCT_OPTION, option.id)
@@ -142,22 +131,10 @@ export const ProductNode = imageArgs =>
     return node
   })
 
-export const ProductMetafieldNode = _imageArgs =>
-  createNodeFactory(PRODUCT_METAFIELD)
-
 export const ProductOptionNode = _imageArgs => createNodeFactory(PRODUCT_OPTION)
 
 export const ProductVariantNode = (imageArgs, productNode) =>
   createNodeFactory(PRODUCT_VARIANT, async node => {
-    if (node.metafields) {
-      const metafields = node.metafields.edges.map(edge => edge.node)
-
-      node.metafields___NODE = metafields.map(metafield =>
-        generateNodeId(PRODUCT_VARIANT_METAFIELD, metafield.id)
-      )
-      delete node.metafields
-    }
-
     if (node.image)
       node.image.localFile___NODE = await downloadImageAndCreateFileNode(
         {
@@ -170,9 +147,6 @@ export const ProductVariantNode = (imageArgs, productNode) =>
     node.product___NODE = productNode.id
     return node
   })
-
-export const ProductVariantMetafieldNode = _imageArgs =>
-  createNodeFactory(PRODUCT_VARIANT_METAFIELD)
 
 export const ShopPolicyNode = createNodeFactory(SHOP_POLICY)
 

@@ -1,7 +1,7 @@
-# gatsby-source-shopify
+# gatsby-source-shopify-multi-language
 
 Source plugin for pulling data into [Gatsby][gatsby] from [Shopify][shopify]
-stores via the [Shopify Storefront API][shopify-storefront-api].
+stores via the [Shopify Storefront API][shopify-storefront-api] with support for multiple languages.
 
 ## Features
 
@@ -52,8 +52,8 @@ plugins: [
 
       // Set the API version you want to use. For a list of available API versions,
       // see: https://help.shopify.com/en/api/storefront-api/reference/queryroot
-      // Defaults to 2019-07
-      apiVersion: "2020-01",
+      // Defaults to 2023-01
+      apiVersion: "2023-01",
 
       // Set verbose to true to display a verbose output on `npm run develop`
       // or `npm run build`. This prints which nodes are being fetched and how
@@ -70,6 +70,10 @@ plugins: [
       // Possible values are: 'shop' and 'content'.
       // Defaults to ['shop', 'content'].
       includeCollections: ["shop", "content"],
+
+      // List of languages you want to fetch.
+      // Defaults to ['en'].
+      languages: ['en', 'de']
 
       // Allow overriding the default queries
       // This allows you to include/exclude extra fields when sourcing nodes
@@ -631,18 +635,6 @@ shopifyQueries: {
                 }
               }
             }
-            metafields(first: 250) {
-              edges {
-                node {
-                  description
-                  id
-                  key
-                  namespace
-                  value
-                  valueType
-                }
-              }
-            }
             onlineStoreUrl
             options {
               id
@@ -678,18 +670,6 @@ shopifyQueries: {
                     altText
                     id
                     originalSrc
-                  }
-                  metafields(first: 250) {
-                    edges {
-                      node {
-                        description
-                        id
-                        key
-                        namespace
-                        value
-                        valueType
-                      }
-                    }
                   }
                   price
                   priceV2 {

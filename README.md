@@ -12,7 +12,7 @@ stores via the [Shopify Storefront API][shopify-storefront-api] with support for
 ## Install
 
 ```shell
-npm install --save gatsby-source-shopify
+npm install --save gatsby-source-shopify-multi-language
 ```
 
 ## How to use
@@ -32,7 +32,7 @@ plugins: [
    * plugins. Here the site sources its data from Shopify.
    */
   {
-    resolve: "gatsby-source-shopify",
+    resolve: "gatsby-source-shopify-multi-language",
     options: {
       // The domain name of your Shopify shop. This is required.
       // Example: 'gatsby-source-shopify-test-shop' if your Shopify address is
